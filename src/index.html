@@ -1,0 +1,192 @@
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <script type="importmap">
+        {
+          "imports": { 
+            "three": "https://unpkg.com/three/build/three.module.js"
+           }
+        }
+    </script>
+    <script type="module">
+        import Nodi from './nodi.js';
+        import NodiView from './view.js';
+        import NodiInput from './input.js';
+        import NodiLayer from './layer.js';
+    
+        Math.getRandomInt = function( max ) {
+            return Math.floor( Math.random() * max );
+        }
+
+        // create view
+        let game = new Nodi("myCanvas")
+        game.view = new NodiView(game);
+        game.input = new NodiInput(game);
+        game.terrain = new NodiLayer(game, "terrain", 0);
+  
+        game.terrain.init = function(game) {
+            const texture = new game.view.three.TextureLoader().load( 'https://raw.githubusercontent.com/nodi-andy/browser-factory/main/src/entity/assembling_machine_1/platform.png');
+            texture.needUpdate = true;
+            texture.repeat.set( 1, 1 );
+
+            this.material1 = new game.view.three.SpriteMaterial( { map: texture.clone() } );
+            this.sprite1 = new game.view.three.Sprite( this.material1);
+            this.material1.map.offset.set( 0, 0 );
+            this.sprite1.position.set(0.25, 1)
+            this.add( this.sprite1 );
+            this.sprite1.onPointerOver = () => {console.log("HIT A")}
+
+            this.material2 = new game.view.three.SpriteMaterial( { map: texture.clone() } );
+            this.sprite2 = new game.view.three.Sprite( this.material2);
+            this.material2.map.offset.set( 0, 0 );
+            this.sprite2.position.set(0.5, -1)
+            this.add( this.sprite2 );
+            this.sprite2.onPointerOver = () => {console.log("HIT B")}
+            this.sprite2.onPointerOut = () => {console.log("LOST B")}
+        }
+        game.terrain.onPointerMove = function() {
+            console.log("MOVE")
+        }
+        game.entities = new NodiLayer(game, "player", 1);
+
+        game.entities.init = function(game) {
+            const numRows = 8;
+            const numCols = 32;
+            const map = new game.view.three.TextureLoader().load( 'https://raw.githubusercontent.com/nodi-andy/browser-factory/main/src/entity/player/player.png' );
+            map.wrapS = game.view.three.RepeatWrapping;
+            map.wrapT = game.view.three.RepeatWrapping;
+            map.repeat.set(1 / numCols, 1 / numRows);
+    
+            this.material = new game.view.three.SpriteMaterial( { map: map } );
+            this.sprite = new game.view.three.Sprite( this.material);
+            this.sprite.scale.set(1, 2, 1);
+            this.add( this.sprite );
+            this.sprite.render = function(currentFrame) {
+                const col = Math.floor((currentFrame / 24) % 30);
+                this.position.x -= 0.04
+                this.material.map.offset.set(-col / 30 + 0.004, 1/8);
+            }
+        }
+
+
+        game.dataLayer = new NodiLayer(game, "data", 0);
+        game.init = function() {
+            this.point = 0;
+            this.nextNum = 1;
+            this.level = 0;
+        }
+
+        game.startNextLevel = function() {
+            this.level++;
+            this.state = "init";
+
+            let hudMsg = ""
+            if (this.maxPoint) {
+                hudMsg += "Reached " + this.maxPoint + " points. ";
+            }
+            if (this.hud) {
+                hudMsg += "Click on 1 to start.";
+            }
+            this.hud.msgText = hudMsg;
+            let dataLayer = this.layers["data"];
+            dataLayer.d = {};
+            dataLayer.datasource = [];
+
+            for (let yFill = 0; yFill < this.gridSize.y; yFill++) {
+                for (let xFill = 0; xFill < this.gridSize.x; xFill++) {
+                    dataLayer.datasource.push(new NC.Vec2(xFill, yFill));
+                }
+            }
+
+            for (let i = 0; i < this.level; i++) {
+                let itemPos = Math.getRandomInt(dataLayer.datasource.length);
+                let data = dataLayer.datasource[itemPos]
+                data.visible = true;
+                data.id = itemPos;
+                data.number = i + 1;
+                let itemID = data.y * this.gridSize.x + data.x;
+                dataLayer.d[itemID] = data;
+                dataLayer.datasource.splice(itemPos, 1);
+            }
+
+            this.nextNum = 1;
+        }
+
+        game.start = function() {
+            this.state = "running";
+            this.nextNum = 2;
+        }
+        game.dataLayer.render = function (view) {
+            if (this.d) {
+                for(let item in this.d) {
+                    //this.fillText(this.d[item].number, this.d[item]);
+                }
+            }
+        }
+
+        game.dataLayer.onMouseClick = function (e) {
+            let itemID = e.gridY * this.gridSize.x + e.gridX;
+            if (this.d === null) return;
+            let item = this.d[itemID]
+
+            if (game.state == "init") {
+                if ( item?.number === 1 && game.nextNum === 1) {
+                    for(let id in this.d) {
+                        let item = this.d[id];
+                        if (item.number !== 1) {
+                            item.visible = false;
+                        }
+                    }
+                    game.start();
+                }
+            }
+
+            if (game.state == "running") {
+                if (item?.number === game.nextNum && game.nextNum > 1) {
+                    item.visible = true;
+                    game.nextNum++;
+                    game.point++;
+                    if (game.maxPoint < game.point) game.maxPoint = game.point;
+
+                    if (game.nextNum == game.level +1) {
+
+                        game.startNextLevel();
+                        return;
+                    }
+                }
+                else if (game.nextNum < item?.number) {
+                    game.point -= game.nextNum;
+                    game.reset();
+                    game.startNextLevel();
+                    return;
+                }
+            }
+            console.log(this.d[itemID]?.number);
+        }
+
+        // add custom layer
+        game.coverLayer  = new NodiLayer(game, "data", 0);
+
+        game.coverLayer.render = function (game) {
+            let data = game.layers["data"].d;
+            if (data) {
+                for(let id in data) {
+                    let item = data[id];
+                    if (item.visible === false) {
+                        //ctx.fillRect(item.x, item.y, 1, 1);
+                    }
+                }
+            }
+        }
+        game.setState("init");
+
+        //game.startNextLevel();
+    </script>
+  </head>
+
+  <body style = "margin: 0px">
+    <canvas id="myCanvas"></canvas>
+  </body>
+
+</html>
+       
